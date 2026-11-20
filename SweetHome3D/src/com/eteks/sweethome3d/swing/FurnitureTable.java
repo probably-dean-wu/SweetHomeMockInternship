@@ -725,12 +725,13 @@ public class FurnitureTable extends JTable implements View, Printable {
 
   /**
    * Prints this component to make it fill <code>pageFormat</code> imageable size.
+   * If home has levels, the level of furniture is always printed,
+   * without changing the columns displayed by this table.
    */
   public int print(Graphics g, PageFormat pageFormat, int pageIndex) throws PrinterException {
     // Create a printable column model from the column model of this table 
     // with printable renderers for each column
     DefaultTableColumnModel printableColumnModel = new DefaultTableColumnModel();
-    TableColumnModel columnModel = getColumnModel();
     final DefaultTableCellRenderer defaultRenderer = new DefaultTableCellRenderer();
     defaultRenderer.setHorizontalAlignment(DefaultTableCellRenderer.CENTER);
     TableCellRenderer printableHeaderRenderer = new TableCellRenderer() {
@@ -750,8 +751,7 @@ public class FurnitureTable extends JTable implements View, Printable {
           return headerRendererLabel;
         }
       };
-    for (int columnIndex = 0, n = columnModel.getColumnCount(); columnIndex < n; columnIndex++) {
-      final TableColumn tableColumn = columnModel.getColumn(columnIndex);
+    for (final TableColumn tableColumn : getPrintedColumns()) {
       // Create a printable column from existing table column
       TableColumn printableColumn = new TableColumn();
       printableColumn.setIdentifier(tableColumn.getIdentifier());
@@ -783,6 +783,26 @@ public class FurnitureTable extends JTable implements View, Printable {
   }
 
   /**
+   * Returns the columns printed by this table, i.e. its displayed columns followed by
+   * the level column if home has levels and this column isn't displayed.
+   */
+  private List<TableColumn> getPrintedColumns() {
+    TableColumnModel columnModel = getColumnModel();
+    List<TableColumn> printedColumns = Collections.list(columnModel.getColumns());
+    Home home = (Home)((FurnitureTreeTableModel)getModel()).getRoot();
+    if (!home.getLevels().isEmpty()
+        && columnModel instanceof FurnitureTableColumnModel) {
+      // Print the level of furniture to distinguish the furniture of each level
+      TableColumn levelColumn = ((FurnitureTableColumnModel)columnModel).
+          getAvailableColumn(HomePieceOfFurniture.SortableProperty.LEVEL);
+      if (!printedColumns.contains(levelColumn)) {
+        printedColumns.add(levelColumn);
+      }
+    }
+    return printedColumns;
+  }
+
+  /**
    * Prints this table in Event Dispatch Thread.
   */
   private int print(final Graphics g, 
@@ -794,19 +814,22 @@ public class FurnitureTable extends JTable implements View, Printable {
       TableColumnModel oldColumnModel = getColumnModel();
       Color oldGridColor = getGridColor();
       setColumnModel(printableColumnModel);   
-      if (OperatingSystem.isWindows()) {
-        // Add 3 pixels to columns to get a correct rendering
-        updateTableColumnsWidth(3);
-      } else {
-        updateTableColumnsWidth(0);
+      try {
+        if (OperatingSystem.isWindows()) {
+          // Add 3 pixels to columns to get a correct rendering
+          updateTableColumnsWidth(3);
+        } else {
+          updateTableColumnsWidth(0);
+        }
+        setGridColor(gridColor);
+        Printable printable = getPrintable(PrintMode.FIT_WIDTH, null, null);
+        return printable.print(g, pageFormat, pageIndex);
+      } finally {
+        // Restore column model and grid color to their previous values even if print failed,
+        // to ensure the columns displayed at screen never change
+        setColumnModel(oldColumnModel);
+        setGridColor(oldGridColor);
       }
-      setGridColor(gridColor);
-      Printable printable = getPrintable(PrintMode.FIT_WIDTH, null, null);
-      int pageExists = printable.print(g, pageFormat, pageIndex);
-      // Restore column model and grid color to their previous values
-      setColumnModel(oldColumnModel);
-      setGridColor(oldGridColor);
-      return pageExists;
     } else {
       // Print synchronously table in Event Dispatch Thread
       // The best solution should be to be able to print out of Event Dispatch Thread
@@ -1033,6 +1056,13 @@ public class FurnitureTable extends JTable implements View, Printable {
         tableColumn.setHeaderRenderer(headerRenderer);
         this.availableColumns.put(columnProperty, tableColumn);
       }
+    }
+
+    /**
+     * Returns the column of the given <code>property</code>, whether it's displayed or not.
+     */
+    public TableColumn getAvailableColumn(HomePieceOfFurniture.SortableProperty property) {
+      return this.availableColumns.get(property);
     }
 
     /**
